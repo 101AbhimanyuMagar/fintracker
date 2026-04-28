@@ -2,6 +2,8 @@ package com.fintracker_backend.fintracker.controller;
 
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+
 import java.util.List;
 
 import com.fintracker_backend.fintracker.dto.TransactionRequestDTO;
@@ -21,29 +23,37 @@ public class TransactionController {
     @PostMapping
     public ResponseEntity<String> addTransaction(
             @RequestBody TransactionRequestDTO request,
-            @RequestParam Long userId // 🔥 TEMP (later JWT)
+            Authentication authentication
     ) {
-        transactionService.addTransaction(request, userId);
+        String email = authentication.getName();
+
+        transactionService.addTransaction(request, email);
+
         return ResponseEntity.ok("Transaction added successfully");
     }
 
     // 📄 Get All Transactions
     @GetMapping
     public ResponseEntity<List<Transaction>> getUserTransactions(
-            @RequestParam Long userId
+            Authentication authentication
     ) {
+        String email = authentication.getName();
+
         return ResponseEntity.ok(
-                transactionService.getUserTransactions(userId)
+                transactionService.getUserTransactions(email)
         );
     }
 
     // 🏦 Get by Account
     @GetMapping("/account/{accountId}")
     public ResponseEntity<List<Transaction>> getByAccount(
-            @PathVariable Long accountId
+            @PathVariable Long accountId,
+            Authentication authentication
     ) {
+        String email = authentication.getName();
+
         return ResponseEntity.ok(
-                transactionService.getTransactionsByAccount(accountId)
+                transactionService.getTransactionsByAccount(accountId, email)
         );
     }
 
@@ -51,9 +61,12 @@ public class TransactionController {
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteTransaction(
             @PathVariable Long id,
-            @RequestParam Long userId
+            Authentication authentication
     ) {
-        transactionService.deleteTransaction(id, userId);
+        String email = authentication.getName();
+
+        transactionService.deleteTransaction(id, email);
+
         return ResponseEntity.ok("Transaction deleted successfully");
     }
 }

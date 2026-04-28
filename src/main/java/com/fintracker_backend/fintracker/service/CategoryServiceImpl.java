@@ -7,32 +7,45 @@ import com.fintracker_backend.fintracker.dto.CategoryRequestDTO;
 import com.fintracker_backend.fintracker.entity.Category;
 import com.fintracker_backend.fintracker.entity.CategoryType;
 import com.fintracker_backend.fintracker.entity.User;
-import com.fintracker_backend.fintracker.exception.AccessDeniedException;
 import com.fintracker_backend.fintracker.exception.BadRequestException;
 import com.fintracker_backend.fintracker.exception.ResourceNotFoundException;
 import com.fintracker_backend.fintracker.repository.CategoryRepository;
+import com.fintracker_backend.fintracker.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
-    private final UserService userService;
+    private final UserRepository userRepository;
 
+    // ➕ Create Category
     @Override
-public Category createCategory(CategoryRequestDTO request, Long userId) {
+public Category createCategory(CategoryRequestDTO request, String email) {
+
+    log.info("Creating category | user={} | name={} | type={}",
+            email, request.getName(), request.getType());
+            System.out.println("🔥 Creating category...");
 
     if (request.getName() == null || request.getName().trim().isEmpty()) {
+        log.warn("Category creation failed - empty name | user={}", email);
         throw new BadRequestException("Category name is required");
     }
 
-    User user = userService.getUserById(userId);
+    if (request.getType() == null) {
+        log.warn("Category creation failed - type missing | user={}", email);
+        throw new BadRequestException("Category type is required");
+    }
 
-    // Duplicate check
-    categoryRepository.findByNameAndUserId(request.getName(), userId)
+    User user = getUserByEmail(email);
+
+    categoryRepository.findByNameAndUserId(request.getName(), user.getId())
             .ifPresent(c -> {
+                log.warn("Duplicate category attempt | user={} | name={}", email, request.getName());
                 throw new BadRequestException("Category already exists with name: " + request.getName());
             });
 
@@ -40,58 +53,111 @@ public Category createCategory(CategoryRequestDTO request, Long userId) {
 
     if (request.getParentId() != null) {
         parent = categoryRepository.findById(request.getParentId())
-                .filter(cat -> cat.getUser().getId().equals(userId)) // 🔥 SECURITY FIX
-                .orElseThrow(() -> new ResourceNotFoundException("Parent category not found or unauthorized"));
+                .filter(cat -> cat.getUser().getId().equals(user.getId()))
+                .orElseThrow(() -> {
+                    log.warn("Invalid parent category | user={} | parentId={}",
+                            email, request.getParentId());
+                    return new ResourceNotFoundException("Parent category not found or unauthorized");
+                });
     }
 
     Category category = Category.builder()
-            .name(request.getName())
+            .name(request.getName().trim())
             .type(request.getType())
             .user(user)
             .parent(parent)
             .build();
 
-    return categoryRepository.save(category);
+    Category saved = categoryRepository.save(category);
+
+    log.info("Category created | id={} | user={}", saved.getId(), email);
+
+    return saved;
+}
+    // 📄 Get All
+@Override
+public List<Category> getAllCategories(String email) {
+
+    log.debug("Fetching all categories | user={}", email);
+
+    User user = getUserByEmail(email);
+
+    List<Category> categories = categoryRepository.findByUserId(user.getId());
+
+    log.info("Categories fetched | count={} | user={}", categories.size(), email);
+
+    return categories;
 }
 
-    @Override
-    public List<Category> getAllCategories(Long userId) {
-        return categoryRepository.findByUserId(userId);
+    // 📂 Get By Type
+ @Override
+public List<Category> getCategoriesByType(String email, CategoryType type) {
+
+    if (type == null) {
+        log.warn("Category type missing | user={}", email);
+        throw new BadRequestException("Category type is required");
     }
 
-    @Override
-    public List<Category> getCategoriesByType(Long userId, CategoryType type) {
-        return categoryRepository.findByUserIdAndType(userId, type);
-    }
+    log.debug("Fetching categories by type | user={} | type={}", email, type);
 
+    User user = getUserByEmail(email);
+
+    return categoryRepository.findByUserIdAndType(user.getId(), type);
+}
+
+
+    // 📂 Sub Categories
     @Override
     public List<Category> getSubCategories(Long parentId) {
-        return categoryRepository.findByParentId(parentId);
+        log.debug("Fetching subcategories | parentId={}", parentId);
+        List<Category> subcategories = categoryRepository.findByParentId(parentId);
+        log.info("Subcategories fetched | count={} | parentId={}", subcategories.size(), parentId);
+        return subcategories;
     }
 
+    // 📄 Get By ID
     @Override
-public Category getCategoryById(Long id) {
-    return categoryRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + id));
-}
+    public Category getCategoryById(Long id) {
+        return categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+    }
 
+    // ❌ Delete Category
     @Override
-public void deleteCategory(Long id, Long userId) {
+public void deleteCategory(Long id, String email) {
+
+    log.info("Deleting category | id={} | user={}", id, email);
+
+    User user = getUserByEmail(email);
 
     Category category = categoryRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+            .filter(cat -> cat.getUser().getId().equals(user.getId()))
+            .orElseThrow(() -> {
+                log.warn("Unauthorized or not found category | id={} | user={}", id, email);
+                return new ResourceNotFoundException("Category not found or unauthorized");
+            });
 
-    // Security check
-    if (!category.getUser().getId().equals(userId)) {
-        throw new AccessDeniedException("Unauthorized to delete this category");
-    }
-
-    // Check if it has subcategories
     List<Category> children = categoryRepository.findByParentId(id);
+
     if (!children.isEmpty()) {
+        log.warn("Delete failed - category has children | id={}", id);
         throw new BadRequestException("Cannot delete category with subcategories");
     }
 
     categoryRepository.delete(category);
+
+    log.info("Category deleted successfully | id={} | user={}", id, email);
+}
+
+    // =========================
+    // 🔥 HELPER METHOD
+    // =========================
+    private User getUserByEmail(String email) {
+
+    return userRepository.findByEmail(email)
+            .orElseThrow(() -> {
+                log.error("User not found | email={}", email);
+                return new ResourceNotFoundException("User not found");
+            });
 }
 }

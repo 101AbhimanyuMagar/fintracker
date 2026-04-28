@@ -9,15 +9,15 @@ import com.fintracker_backend.fintracker.entity.CategoryType;
 
 public interface CategoryService {
 
-    Category createCategory(CategoryRequestDTO request, Long userId);
+    Category createCategory(CategoryRequestDTO request, String email);
 
-    List<Category> getAllCategories(Long userId);
+    List<Category> getAllCategories(String email);
 
-    List<Category> getCategoriesByType(Long userId, CategoryType type);
+    List<Category> getCategoriesByType(String email, CategoryType type);
 
     List<Category> getSubCategories(Long parentId);
 
     Category getCategoryById(Long id);
 
-    void deleteCategory(Long id, Long userId);
+    void deleteCategory(Long id, String email);
 }

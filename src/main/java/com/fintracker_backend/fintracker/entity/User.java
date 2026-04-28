@@ -28,6 +28,9 @@ public class User {
 
     private String password;
 
+    @Enumerated(EnumType.STRING)
+    private Role role; // ADMIN, CUSTOMER
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 }

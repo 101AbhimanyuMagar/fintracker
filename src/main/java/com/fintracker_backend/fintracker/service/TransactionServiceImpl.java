@@ -17,7 +17,9 @@ import com.fintracker_backend.fintracker.repository.*;
 
 import jakarta.transaction.Transactional;
 import lombok.*;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransactionServiceImpl implements TransactionService {
@@ -28,118 +30,168 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionRepository transactionRepository;
     private final BudgetRepository budgetRepository;
 
-    @Override
-    @Transactional
-    public void addTransaction(TransactionRequestDTO request, Long userId) {
+    // ================================
+    // ➕ ADD TRANSACTION
+    // ================================
+ @Override
+@Transactional
+public void addTransaction(TransactionRequestDTO request, String email) {
 
-        // 1. Fetch user
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    log.info("Add transaction started | user={} | accountId={} | amount={} | type={}",
+            email, request.getAccountId(), request.getAmount(), request.getType());
 
-        // 2. Fetch account (SECURE)
-        Account account = accountRepository.findById(request.getAccountId())
-                .filter(acc -> acc.getUser().getId().equals(userId))
-                .orElseThrow(() -> new AccessDeniedException("Account not found or unauthorized"));
+    User user = userRepository.findByEmail(email)
+            .orElseThrow(() -> {
+                log.error("User not found | email={}", email);
+                return new ResourceNotFoundException("User not found");
+            });
 
-        // 3. Fetch category (SECURE)
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .filter(cat -> cat.getUser().getId().equals(userId))
-                .orElseThrow(() -> new AccessDeniedException("Category not found or unauthorized"));
+    Account account = accountRepository.findById(request.getAccountId())
+            .filter(acc -> acc.getUser().getId().equals(user.getId()))
+            .orElseThrow(() -> {
+                log.warn("Unauthorized account access | accountId={} | user={}",
+                        request.getAccountId(), email);
+                return new AccessDeniedException("Account not found or unauthorized");
+            });
 
-        // 4. Update balance 💰
-        if (request.getType() == TransactionType.EXPENSE) {
+    Category category = categoryRepository.findById(request.getCategoryId())
+            .filter(cat -> cat.getUser().getId().equals(user.getId()))
+            .orElseThrow(() -> {
+                log.warn("Unauthorized category access | categoryId={} | user={}",
+                        request.getCategoryId(), email);
+                return new AccessDeniedException("Category not found or unauthorized");
+            });
 
-            if (account.getBalance().compareTo(request.getAmount()) < 0) {
-    throw new InsufficientBalanceException("Insufficient balance");
-}
+    // 💰 Balance update
+    if (request.getType() == TransactionType.EXPENSE) {
 
-            account.setBalance(account.getBalance().subtract(request.getAmount()));
-
-        } else {
-            account.setBalance(account.getBalance().add(request.getAmount()));
+        if (account.getBalance().compareTo(request.getAmount()) < 0) {
+            log.warn("Insufficient balance | accountId={} | balance={} | requested={}",
+                    account.getId(), account.getBalance(), request.getAmount());
+            throw new InsufficientBalanceException("Insufficient balance");
         }
 
-        accountRepository.save(account);
+        account.setBalance(account.getBalance().subtract(request.getAmount()));
 
-        // 5. Generate transaction reference 🔥
-        String txnRef = "TXN-" + System.currentTimeMillis();
-
-        // 6. Create transaction
-        Transaction transaction = Transaction.builder()
-                .user(user)
-                .account(account)
-                .category(category)
-                .amount(request.getAmount())
-                .type(request.getType())
-                .paymentMethod(request.getPaymentMethod())
-                .status(TransactionStatus.SUCCESS)
-                .transactionRef(txnRef)
-                .note(request.getNote())
-                .createdAt(
-                        request.getTransactionDate() != null
-                                ? request.getTransactionDate()
-                                : LocalDateTime.now()
-                )
-                .build();
-
-        transactionRepository.save(transaction);
-
-        // 7. Budget validation (ONLY for EXPENSE)
-        if (request.getType() == TransactionType.EXPENSE) {
-            checkBudget(userId, category.getId());
-        }
+    } else {
+        account.setBalance(account.getBalance().add(request.getAmount()));
     }
 
+    accountRepository.save(account);
+
+    String txnRef = "TXN-" + System.currentTimeMillis();
+
+    Transaction transaction = Transaction.builder()
+            .user(user)
+            .account(account)
+            .category(category)
+            .amount(request.getAmount())
+            .type(request.getType())
+            .paymentMethod(request.getPaymentMethod())
+            .status(TransactionStatus.SUCCESS)
+            .transactionRef(txnRef)
+            .note(request.getNote())
+            .createdAt(
+                    request.getTransactionDate() != null
+                            ? request.getTransactionDate()
+                            : LocalDateTime.now()
+            )
+            .build();
+
+    transactionRepository.save(transaction);
+
+    log.info("Transaction successful | txnRef={} | accountId={} | amount={}",
+            txnRef, account.getId(), request.getAmount());
+
+    if (request.getType() == TransactionType.EXPENSE) {
+        checkBudget(user.getId(), category.getId());
+    }
+}
     // ================================
     // 📄 GET USER TRANSACTIONS
     // ================================
-    @Override
-    public List<Transaction> getUserTransactions(Long userId) {
-        return transactionRepository.findByUserId(userId);
-    }
+@Override
+public List<Transaction> getUserTransactions(String email) {
+
+    log.debug("Fetching transactions | user={}", email);
+
+    User user = userRepository.findByEmail(email)
+            .orElseThrow(() -> {
+                log.error("User not found | email={}", email);
+                return new ResourceNotFoundException("User not found");
+            });
+
+    List<Transaction> txns = transactionRepository.findByUserId(user.getId());
+
+    log.info("Transactions fetched | count={} | user={}", txns.size(), email);
+
+    return txns;
+}
 
     // ================================
     // 🏦 GET BY ACCOUNT
     // ================================
     @Override
-    public List<Transaction> getTransactionsByAccount(Long accountId) {
+    public List<Transaction> getTransactionsByAccount(Long accountId, String email) {
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        // 🔐 Ensure account belongs to user
+        accountRepository.findById(accountId)
+                .filter(acc -> acc.getUser().getId().equals(user.getId()))
+                .orElseThrow(() -> new AccessDeniedException("Unauthorized"));
+
         return transactionRepository.findByAccountId(accountId);
     }
 
     // ================================
     // ❌ DELETE TRANSACTION
     // ================================
-    @Override
-    @Transactional
-    public void deleteTransaction(Long id, Long userId) {
+@Override
+@Transactional
+public void deleteTransaction(Long id, String email) {
 
-        Transaction txn = transactionRepository.findById(id)
-        .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
+    log.info("Delete transaction requested | txnId={} | user={}", id, email);
 
-        // Security check
-        if (!txn.getUser().getId().equals(userId)) {
-    throw new AccessDeniedException("Unauthorized access");
-}
+    User user = userRepository.findByEmail(email)
+            .orElseThrow(() -> {
+                log.error("User not found | email={}", email);
+                return new ResourceNotFoundException("User not found");
+            });
 
-        Account account = txn.getAccount();
+    Transaction txn = transactionRepository.findById(id)
+            .orElseThrow(() -> {
+                log.error("Transaction not found | txnId={}", id);
+                return new ResourceNotFoundException("Transaction not found");
+            });
 
-        // Reverse balance
-        if (txn.getType() == TransactionType.EXPENSE) {
-            account.setBalance(account.getBalance().add(txn.getAmount()));
-        } else {
-            account.setBalance(account.getBalance().subtract(txn.getAmount()));
-        }
-
-        accountRepository.save(account);
-        transactionRepository.delete(txn);
+    if (!txn.getUser().getId().equals(user.getId())) {
+        log.warn("Unauthorized delete attempt | txnId={} | user={}", id, email);
+        throw new AccessDeniedException("Unauthorized access");
     }
+
+    Account account = txn.getAccount();
+
+    if (txn.getType() == TransactionType.EXPENSE) {
+        account.setBalance(account.getBalance().add(txn.getAmount()));
+    } else {
+        account.setBalance(account.getBalance().subtract(txn.getAmount()));
+    }
+
+    accountRepository.save(account);
+    transactionRepository.delete(txn);
+
+    log.info("Transaction deleted | txnId={} | balanceUpdatedAccountId={}",
+            id, account.getId());
+}
 
     // ================================
     // 🔥 BUDGET LOGIC
     // ================================
     private void checkBudget(Long userId, Long categoryId) {
 
-    String period = getCurrentPeriod(); // 🔥 central logic
+    String period = getCurrentPeriod();
 
     Optional<Budget> budgetOpt =
             budgetRepository.findByUserIdAndCategoryIdAndPeriod(
@@ -156,12 +208,14 @@ public class TransactionServiceImpl implements TransactionService {
         if (totalSpent == null) totalSpent = BigDecimal.ZERO;
 
         if (totalSpent.compareTo(budget.getLimitAmount()) > 0) {
-            System.out.println("⚠️ Budget exceeded for category!");
+            log.warn("Budget exceeded | userId={} | categoryId={} | spent={} | limit={}",
+                    userId, categoryId, totalSpent, budget.getLimitAmount());
         }
     }
 }
-private String getCurrentPeriod() {
-    LocalDate now = LocalDate.now();
-    return now.getYear() + "-" + String.format("%02d", now.getMonthValue());
-}
+
+    private String getCurrentPeriod() {
+        LocalDate now = LocalDate.now();
+        return now.getYear() + "-" + String.format("%02d", now.getMonthValue());
+    }
 }

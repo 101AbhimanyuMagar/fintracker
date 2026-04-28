@@ -1,6 +1,8 @@
 package com.fintracker_backend.fintracker.controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import com.fintracker_backend.fintracker.dto.CategoryRequestDTO;
@@ -16,41 +18,63 @@ public class CategoryController {
 
     private final CategoryService categoryService;
 
+    // ➕ Create Category
     @PostMapping
     public ResponseEntity<Category> createCategory(
             @RequestBody CategoryRequestDTO request,
-            @RequestParam Long userId
+            Authentication authentication
     ) {
+        String email = authentication.getName();
+
         return ResponseEntity.ok(
-                categoryService.createCategory(request, userId)
+                categoryService.createCategory(request, email)
         );
     }
 
+
+        @GetMapping("/subcategories/{parentId}")
+        public ResponseEntity<List<Category>> getSubCategories(
+                @PathVariable Long parentId
+        ) {
+        return ResponseEntity.ok(
+                categoryService.getSubCategories(parentId)
+        );
+        }
+
+    // 📄 Get All Categories
     @GetMapping
-    public ResponseEntity<List<Category>> getAll(
-            @RequestParam Long userId
-    ) {
+    public ResponseEntity<List<Category>> getAll(Authentication authentication) {
+
+        String email = authentication.getName();
+
         return ResponseEntity.ok(
-                categoryService.getAllCategories(userId)
+                categoryService.getAllCategories(email)
         );
     }
 
+    // 📂 Get By Type (INCOME / EXPENSE)
     @GetMapping("/type")
     public ResponseEntity<List<Category>> getByType(
-            @RequestParam Long userId,
-            @RequestParam CategoryType type
+            @RequestParam CategoryType type,
+            Authentication authentication
     ) {
+        String email = authentication.getName();
+
         return ResponseEntity.ok(
-                categoryService.getCategoriesByType(userId, type)
+                categoryService.getCategoriesByType(email, type)
         );
     }
 
+    // ❌ Delete Category
     @DeleteMapping("/{id}")
     public ResponseEntity<String> delete(
             @PathVariable Long id,
-            @RequestParam Long userId
+            Authentication authentication
     ) {
-        categoryService.deleteCategory(id, userId);
+        String email = authentication.getName();
+
+        categoryService.deleteCategory(id, email);
+
         return ResponseEntity.ok("Category deleted");
     }
 }
