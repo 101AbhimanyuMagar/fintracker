@@ -18,11 +18,11 @@ import java.security.Key;
 @Component
 public class JwtUtil {
 
-    @Value("${jwt.secret}")
-    private String secret;
+@Value("${jwt.secret}")
+private String secret;
 
-    @Value("${jwt.expirationMs}")
-    private long expirationMs;
+@Value("${jwt.expirationMs}")
+private long expirationMs;
 
     private Key getSignInKey() {
         return Keys.hmacShaKeyFor(secret.getBytes());

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class LoggingAspect {
 
-    @Around("execution(* com.fintracker_backend.fintracker.service.CategoryService.*(..))")
+    @Around("execution(* com.fintracker_backend.fintracker.service.*(..))")
     public Object logServiceMethods(ProceedingJoinPoint joinPoint) throws Throwable {
 
         String methodName = joinPoint.getSignature().toShortString();
