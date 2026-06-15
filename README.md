@@ -1,7 +1,7 @@
 # FinTracker
 
 ## Live Demo
-http://13.207.2.23/
+http://13.235.132.66/
 
 ## Architecture Diagram
 
